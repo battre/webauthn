@@ -371,6 +371,16 @@ Issue: Find new headline for this section and update references
 <xmp class="idl">
     [SecureContext]
     interface ScopedCredential : Credential {
+        // Information about the authenticator.
+        readonly attribute ScopedCredentialType      type;
+        readonly attribute ArrayBuffer               authenticatorId;
+
+        // Information about the account.
+        readonly attribute DOMString                 rpDisplayName;
+        readonly attribute DOMString                 displayName;
+        readonly attribute DOMString                 name;
+        readonly attribute DOMString                 imageURL;
+
         readonly attribute ScopedCredentialAssertion assertion;
 
         static Promise<ScopedCredential> create(
@@ -383,8 +393,43 @@ Issue: Find new headline for this section and update references
     // All ScopedCredential objects have their type slot's value set to the string "scoped".
 </xmp>
 
+<div dfn-type="attribute" dfn-for="ScopedCredential">
+    The <dfn>type</dfn> attribute contains a value of type {{ScopedCredentialType}}, indicating the specification and version
+    that this credential conforms to.
+
+    Issue: Should type go away? The Credential already has a type but that type is not meant to represent a version string. If we need to keep type, we should has a wrapping dictionary containing the type and authenticatorId because we need to reference the tuples in the inclusion/exclusion lists of options. Such a wrapping class used to be ScopedCredential.
+
+    The <dfn>authenticatorId</dfn> attribute contains an identifier for the credential, chosen by the platform with help from the
+    authenticator. This identifier is used to look up credentials for use, and is therefore expected to be globally unique with
+    high probability across all credentials of the same type, across all authenticators. This API does not constrain the format
+    or length of this identifier, except that it must be sufficient for the platform to uniquely select a key. For example, an
+    authenticator without on-board storage may create identifiers that consist of the key material wrapped with a key that is
+    burned into the authenticator.
+
+    Issue: The Credential Management API uses the {{Credential/id}} of {{Credential}} for determining uniqueness.
+
+    The <dfn>assertion<attribute> ...
+
+    Issue: Write assertion definition
+
+    The <dfn>rpDisplayName</dfn> member contains the friendly name of the [RP], such as "Acme Corporation", "Widgets Inc" or
+    "Awesome Site".
+
+    The <dfn>displayName</dfn> member contains the friendly name associated with the user account by the [RP], such as "John
+    P. Smith".
+
+    The <dfn>id</dfn> member contains an identifier for the account, specified by the [RP]. This is not meant to be displayed
+    to the user. It is used by the [RP] to control the number of credentials - an authenticator will never contain more than one
+    credential for a given [RP] under the same {{Account/id}}.
+
+    The <dfn>name</dfn> member contains a detailed name for the account, such as "john.p.smith@example.com".
+
+    The <dfn>imageURL</dfn> member contains a URL that resolves to the user's account image. This may be a URL that can be
+    used to retrieve an image containing the user's current avatar, or a data URI that contains the image data.
+
+</div>
+
 Issue: Should create() use a similar style of passing parameters like the constructors of the CM API? that has the advantage that the order of parameters does not matter.
-Issue: We have to deal with two IDs: In WebAuthN, the Account as an ID (DOMString, chosen by the website) and the ScopedCredential has an ID (ArrayBuffer, chosen by the Authenticator). We need to reconcile those.
 
 <!--
 Old code for reference:
@@ -434,9 +479,6 @@ This method takes the following parameters:
         {{AssertionOptions/allowList}} will not result in the older credential being offered to the user.
     - Any calls to <a for="CredentialsContainer" lt="get()" method>`navigator.credentials.get()`</a> for {{ScopedCredential}}s that specify the older credential
         in the {{AssertionOptions/allowList}} may also not result in it being offered to the user.
-
-    Issue: Account has more fields than Credential or SiteBoundCredential
-    Issue: Uniqueness is defined on accountInformation or(!) id.
 
 - The <dfn>cryptoParameters</dfn> parameter supplies information about the desired properties of the credential to be created.
     The sequence is ordered from most preferred to least preferred. The platform makes a best effort to create the most
@@ -552,19 +594,42 @@ When this method is invoked, the user agent MUST execute the following algorithm
     <dt>If any |authenticator| indicates success,</dt>
     <dd>
         1. [=set/Remove=] |authenticator| from |issuedRequests|.
-        2. Let |value| be a new {{ScopedCredentialInfo}} object whose fields are:
-            : {{ScopedCredentialInfo/clientDataJSON}}
+        2. Let |assertion| be a new {{ScopedCredentialAssertion}} object whose fields are:
+            : {{ScopedCredentialAssertion/clientDataJSON}}
             :: A new {{ArrayBuffer}} containing the bytes of |clientDataJSON|.
-            : {{ScopedCredentialInfo/attestationObject}}
+            : {{ScopedCredentialAssertion/attestationObject}}
             :: A new {{ArrayBuffer}} containing the bytes of the value returned from the successful
                 [=authenticatorMakeCredential=] operation
-        3. [=set/For each=] remaining |authenticator| in |issuedRequests| invoke the [=authenticatorCancel=] operation on
+            : {{ScopedCredentialAssertion/authenticatorData}}
+            :: null
+            : {{ScopedCredentialAssertion/signature}}
+            :: null
+        3. Let |result| be a {{ScopedCredential}} object whose fields are:
+            : {{ScopedCredential/id}}
+            :: The value of accountInformation.{{Account/id}}
+            : {{ScopedCredential/type}}
+            :: The value of ... TODO ...
+            : {{ScopedCredential/authenticatorId}}
+            :: The value of ... TODO ...
+            : {{ScopedCredential/rpDisplayName}}
+            :: The value of accountInformation.{{Account/rpDisplayName}}
+            : {{ScopedCredential/displayName}}
+            :: The value of accountInformation.{{Account/displayName}}
+            : {{ScopedCredential/name}}
+            :: The value of accountInformation.{{Account/name}}
+            : {{ScopedCredential/imageURL}}
+            :: The value of accountInformation.{{Account/imageURL}}
+            : {{ScopedCredential/assertion}}
+            :: The value of |assertion|
+        4. [=set/For each=] remaining |authenticator| in |issuedRequests| invoke the [=authenticatorCancel=] operation on
             |authenticator| and [=set/remove=] it from |issuedRequests|.
-        4. [=Resolve=] |promise| with |value| and terminate this algorithm.
+        5. [=Resolve=] |promise| with |result| and terminate this algorithm.
     </dd>
     </dl>
 
 1. [=Reject=] |promise| with a {{DOMException}} whose name is "{{NotAllowedError}}".
+
+Issue: Do we need to specify which data to persist?
 
 During the above process, the user agent SHOULD show some UI to the user to guide them in the process of selecting and
 authorizing an authenticator.
@@ -593,7 +658,6 @@ a credential even if one is present, for example to maintain privacy.
 </pre>
 
 Issue: Should we fold AssertionOptions into ScopedCredentialRequestOptions? Seems like it would marginally reduce complexity.
-Issue: do I need to specify the namespace anywhere?
 
 This {{ScopedCredentialRequestOptions}} dictionary has the following members:
 
@@ -677,11 +741,13 @@ When <a for="CredentialsContainer" lt="get()" method>`navigator.credentials.get(
 
 1. Reject |promise| with a {{DOMException}} whose name is "{{NotAllowedError}}", and terminate this algorithm.
 
+Issue: More fields of the {{ScopedCredential}} and {{ScopedCredentialAssertion}} need to be populated.
+
 During the above process, the user agent SHOULD show some UI to the user to guide them in the process of selecting and
 authorizing an authenticator with which to complete the operation.
 </div>
 
-Issue: TODO: Replace AuthenticationAssertion With ScopedCredentialAssertion
+Issue: TODO: Replace AuthenticationAssertion with ScopedCredentialAssertion throughout this document
 
 
 ## Information about Scoped Credential (interface <dfn interface>ScopedCredentialInfo</dfn>) ## {#iface-credentialInfo}
@@ -693,7 +759,7 @@ Issue: TODO: Replace AuthenticationAssertion With ScopedCredentialAssertion
         readonly    attribute ArrayBuffer   attestationObject;
     };
 </pre>
-Issue: TODO: Replace ScopedCredentialInfo With ScopedCredentialAssertion
+Issue: TODO: Replace ScopedCredentialInfo with ScopedCredentialAssertion throughout this document and delete this section.
 
 <div dfn-type="attribute" dfn-for="ScopedCredentialInfo">
     This interface represents a newly-created scoped credential. It contains information about the credential that can be used
@@ -740,7 +806,7 @@ Issue: TODO: Replace ScopedCredentialInfo With ScopedCredentialAssertion
     to the user. It is used by the [RP] to control the number of credentials - an authenticator will never contain more than one
     credential for a given [RP] under the same {{Account/id}}.
 
-    Issue: id should be of type USVString to be compatible with CM API.
+    Issue: {{Account/id}} should be of type USVString to be compatible with CM API.
 
     The <dfn>name</dfn> member contains a detailed name for the account, such as "john.p.smith@example.com".
 
@@ -996,10 +1062,8 @@ following Web IDL.
 </div>
 
 
+<!--
 ### Unique Identifier for Credential (interface <dfn interface>ScopedCredential</dfn>) ### {#credential-identifier}
-
-Issue: This needs to go away.
-Issue: id is an ArrayBuffer
 
 <pre class="idl">
     [SecureContext]
@@ -1023,6 +1087,7 @@ by the caller to select a credential for use.
     authenticator without on-board storage may create identifiers that consist of the key material wrapped with a key that is
     burned into the authenticator.
 </div>
+-->
 
 
 ### Credential Descriptor (dictionary <dfn dictionary>ScopedCredentialDescriptor</dfn>) ### {#credential-dictionary}
@@ -2812,7 +2877,7 @@ then the sample code for performing such an authentication might look like this:
         "scoped": {
             challenge,
             options
-	}
+        }
     }).then(function (credential) {
         // Send credential.assertion to server for verification
     }).catch(function (err) {
@@ -2849,7 +2914,7 @@ extension for transaction authorization.
         "scoped": {
             challenge,
             options
-	}
+      }
     }).then(function (credential) {
         // Send credential.assertion to server for verification
     }).catch(function (err) {
